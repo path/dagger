@@ -32,7 +32,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
-import javax.annotation.processing.AbstractProcessor;
 import javax.annotation.processing.RoundEnvironment;
 import javax.annotation.processing.SupportedAnnotationTypes;
 import javax.inject.Provider;
@@ -63,7 +62,7 @@ import static java.lang.reflect.Modifier.STATIC;
  * for each {@code @Provides} method of a target class.
  */
 @SupportedAnnotationTypes({ "dagger.Provides", "dagger.Module" })
-public final class ProvidesProcessor extends AbstractProcessor {
+public final class ProvidesProcessor extends DaggerProcessor {
   private final LinkedHashMap<String, List<ExecutableElement>> remainingTypes =
       new LinkedHashMap<String, List<ExecutableElement>>();
   private static final String BINDINGS_MAP = JavaWriter.type(
@@ -100,10 +99,6 @@ public final class ProvidesProcessor extends AbstractProcessor {
     return false; // FullGraphProcessor needs an opportunity to process.
   }
 
-  private void error(String msg, Element element) {
-    processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, msg, element);
-  }
-
   /**
    * Returns a map containing all {@code @Provides} methods, indexed by class.
    */
@@ -128,7 +123,7 @@ public final class ProvidesProcessor extends AbstractProcessor {
       if (typeModifiers.contains(Modifier.PRIVATE)
           || typeModifiers.contains(Modifier.ABSTRACT)) {
         error("Classes declaring @Provides methods must not be private or abstract: "
-                + type.getQualifiedName(), type);
+            + type.getQualifiedName(), type);
         continue;
       }
 
@@ -151,16 +146,12 @@ public final class ProvidesProcessor extends AbstractProcessor {
       TypeMirror returnType = typeUtils.erasure(providerMethodAsExecutable.getReturnType());
       if (typeUtils.isSameType(returnType, providerType)) {
         error("@Provides method must not return Provider directly: "
-            + type.getQualifiedName()
-            + "."
-            + providerMethod, providerMethod);
+            + type.getQualifiedName() + "." + providerMethod, providerMethod);
         continue;
       }
       if (typeUtils.isSameType(returnType, lazyType)) {
         error("@Provides method must not return Lazy directly: "
-            + type.getQualifiedName()
-            + "."
-            + providerMethod, providerMethod);
+            + type.getQualifiedName() + "." + providerMethod, providerMethod);
         continue;
       }
 
@@ -245,8 +236,8 @@ public final class ProvidesProcessor extends AbstractProcessor {
     for (Object injectableType : injects) {
       TypeMirror typeMirror = (TypeMirror) injectableType;
       String key = CodeGen.isInterface(typeMirror)
-          ? GeneratorKeys.get(typeMirror)
-          : GeneratorKeys.rawMembersKey(typeMirror);
+          ? key(typeMirror, type)
+          : rawMembersKey(typeMirror, type);
       injectsField.append(JavaWriter.stringLiteral(key)).append(", ");
     }
     injectsField.append("}");
@@ -256,7 +247,7 @@ public final class ProvidesProcessor extends AbstractProcessor {
     StringBuilder staticInjectionsField = new StringBuilder().append("{ ");
     for (Object staticInjection : staticInjections) {
       TypeMirror typeMirror = (TypeMirror) staticInjection;
-      staticInjectionsField.append(CodeGen.typeToString(typeMirror)).append(".class, ");
+      staticInjectionsField.append(typeToString(typeMirror)).append(".class, ");
     }
     staticInjectionsField.append("}");
     writer.emitField("Class<?>[]", "STATIC_INJECTIONS", PRIVATE | STATIC | FINAL,
@@ -271,7 +262,7 @@ public final class ProvidesProcessor extends AbstractProcessor {
         continue;
       }
       TypeMirror typeMirror = (TypeMirror) include;
-      includesField.append(CodeGen.typeToString(typeMirror)).append(".class, ");
+      includesField.append(typeToString(typeMirror)).append(".class, ");
     }
     includesField.append("}");
     writer.emitField("Class<?>[]", "INCLUDES", PRIVATE | STATIC | FINAL, includesField.toString());
@@ -305,13 +296,13 @@ public final class ProvidesProcessor extends AbstractProcessor {
         Provides provides = providerMethod.getAnnotation(Provides.class);
         switch (provides.type()) {
           case UNIQUE: {
-            String key = GeneratorKeys.get(providerMethod);
+            String key = key(providerMethod);
             writer.emitStatement("map.put(%s, new %s(module))", JavaWriter.stringLiteral(key),
                 bindingClassName(providerMethod, methodToClassName, methodNameToNextId));
             break;
           }
           case SET: {
-            String key = GeneratorKeys.getSetKey(providerMethod);
+            String key = setKey(providerMethod);
             writer.emitStatement("SetBinding.add(map, %s, new %s(module))",
                 JavaWriter.stringLiteral(key),
                 bindingClassName(providerMethod, methodToClassName, methodNameToNextId));
@@ -396,9 +387,9 @@ public final class ProvidesProcessor extends AbstractProcessor {
       Map<String, AtomicInteger> methodNameToNextId, boolean library)
       throws IOException {
     String methodName = providerMethod.getSimpleName().toString();
-    String moduleType = CodeGen.typeToString(providerMethod.getEnclosingElement().asType());
+    String moduleType = typeToString(providerMethod.getEnclosingElement().asType());
     String className = bindingClassName(providerMethod, methodToClassName, methodNameToNextId);
-    String returnType = CodeGen.typeToString(providerMethod.getReturnType());
+    String returnType = typeToString(providerMethod.getReturnType());
     List<? extends VariableElement> parameters = providerMethod.getParameters();
     boolean dependent = !parameters.isEmpty();
 
@@ -411,14 +402,14 @@ public final class ProvidesProcessor extends AbstractProcessor {
     for (Element parameter : parameters) {
       TypeMirror parameterType = parameter.asType();
       writer.emitField(JavaWriter.type(Binding.class,
-          CodeGen.typeToString(parameterType)),
+          typeToString(parameterType)),
           parameterName(parameter), PRIVATE);
     }
 
     writer.emitEmptyLine();
     writer.beginMethod(null, className, PUBLIC, moduleType, "module");
     boolean singleton = providerMethod.getAnnotation(Singleton.class) != null;
-    String key = JavaWriter.stringLiteral(GeneratorKeys.get(providerMethod));
+    String key = JavaWriter.stringLiteral(key(providerMethod));
     String membersKey = null;
     writer.emitStatement("super(%s, %s, %s, %s.class)",
         key, membersKey, (singleton ? "IS_SINGLETON" : "NOT_SINGLETON"), moduleType);
@@ -433,11 +424,10 @@ public final class ProvidesProcessor extends AbstractProcessor {
       writer.emitAnnotation(SuppressWarnings.class, JavaWriter.stringLiteral("unchecked"));
       writer.beginMethod("void", "attach", PUBLIC, Linker.class.getCanonicalName(), "linker");
       for (VariableElement parameter : parameters) {
-        String parameterKey = GeneratorKeys.get(parameter);
+        String parameterKey = key(parameter);
         writer.emitStatement("%s = (%s) linker.requestBinding(%s, %s.class)",
             parameterName(parameter),
-            writer.compressType(JavaWriter.type(Binding.class,
-                CodeGen.typeToString(parameter.asType()))),
+            writer.compressType(JavaWriter.type(Binding.class, typeToString(parameter.asType()))),
             JavaWriter.stringLiteral(parameterKey),
             writer.compressType(moduleType));
       }

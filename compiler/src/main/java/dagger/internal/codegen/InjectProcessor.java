@@ -27,7 +27,6 @@ import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import javax.annotation.processing.AbstractProcessor;
 import javax.annotation.processing.RoundEnvironment;
 import javax.annotation.processing.SupportedAnnotationTypes;
 import javax.inject.Inject;
@@ -57,7 +56,7 @@ import static java.lang.reflect.Modifier.PUBLIC;
  * {@literal @}{@code Inject}-annotated members of a class.
  */
 @SupportedAnnotationTypes("javax.inject.Inject")
-public final class InjectProcessor extends AbstractProcessor {
+public final class InjectProcessor extends DaggerProcessor {
   private final Set<String> remainingTypeNames = new LinkedHashSet<String>();
 
   @Override public SourceVersion getSupportedSourceVersion() {
@@ -199,11 +198,6 @@ public final class InjectProcessor extends AbstractProcessor {
     return new InjectedClass(type, staticFields, constructor, fields);
   }
 
-
-  private void error(String msg, Element element) {
-    processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, msg, element);
-  }
-
   /**
    * Write a companion class for {@code type} that extends {@link Binding}.
    *
@@ -240,13 +234,13 @@ public final class InjectProcessor extends AbstractProcessor {
     if (constructor != null) {
       for (VariableElement parameter : constructor.getParameters()) {
         writer.emitField(JavaWriter.type(Binding.class,
-            CodeGen.typeToString(parameter.asType())),
+            typeToString(parameter.asType())),
             parameterName(disambiguateFields, parameter), PRIVATE);
       }
     }
     for (Element field : fields) {
       writer.emitField(JavaWriter.type(Binding.class,
-          CodeGen.typeToString(field.asType())),
+          typeToString(field.asType())),
           fieldName(disambiguateFields, field), PRIVATE);
     }
     if (supertype != null) {
@@ -257,9 +251,9 @@ public final class InjectProcessor extends AbstractProcessor {
     writer.emitEmptyLine();
     writer.beginMethod(null, adapterName, PUBLIC);
     String key = (constructor != null)
-        ? JavaWriter.stringLiteral(GeneratorKeys.get(type.asType()))
+        ? JavaWriter.stringLiteral(rawKey(type))
         : null;
-    String membersKey = JavaWriter.stringLiteral(GeneratorKeys.rawMembersKey(type.asType()));
+    String membersKey = JavaWriter.stringLiteral(rawMembersKey(type));
     boolean singleton = type.getAnnotation(Singleton.class) != null;
     writer.emitStatement("super(%s, %s, %s, %s.class)",
         key, membersKey, (singleton ? "IS_SINGLETON" : "NOT_SINGLETON"), strippedTypeName);
@@ -275,8 +269,8 @@ public final class InjectProcessor extends AbstractProcessor {
           writer.emitStatement("%s = (%s) linker.requestBinding(%s, %s.class)",
               parameterName(disambiguateFields, parameter),
               writer.compressType(JavaWriter.type(Binding.class,
-                  CodeGen.typeToString(parameter.asType()))),
-              JavaWriter.stringLiteral(GeneratorKeys.get(parameter)),
+                  typeToString(parameter.asType()))),
+              JavaWriter.stringLiteral(key(parameter)),
               strippedTypeName);
         }
       }
@@ -284,8 +278,8 @@ public final class InjectProcessor extends AbstractProcessor {
         writer.emitStatement("%s = (%s) linker.requestBinding(%s, %s.class)",
             fieldName(disambiguateFields, field),
             writer.compressType(JavaWriter.type(Binding.class,
-                CodeGen.typeToString(field.asType()))),
-            JavaWriter.stringLiteral(GeneratorKeys.get((VariableElement) field)),
+                typeToString(field.asType()))),
+            JavaWriter.stringLiteral(key((VariableElement) field)),
             strippedTypeName);
       }
       if (supertype != null) {
@@ -293,7 +287,7 @@ public final class InjectProcessor extends AbstractProcessor {
             "supertype",
             writer.compressType(JavaWriter.type(Binding.class,
                 CodeGen.rawTypeToString(supertype, '.'))),
-            JavaWriter.stringLiteral(GeneratorKeys.rawMembersKey(supertype)),
+            JavaWriter.stringLiteral(rawMembersKey(supertype, type)),
             strippedTypeName);
       }
       writer.endMethod();
@@ -413,7 +407,7 @@ public final class InjectProcessor extends AbstractProcessor {
 
     for (Element field : fields) {
       writer.emitField(JavaWriter.type(Binding.class,
-          CodeGen.typeToString(field.asType())),
+          typeToString(field.asType())),
           fieldName(false, field), PRIVATE);
     }
 
@@ -425,8 +419,8 @@ public final class InjectProcessor extends AbstractProcessor {
       writer.emitStatement("%s = (%s) linker.requestBinding(%s, %s.class)",
           fieldName(false, field),
           writer.compressType(JavaWriter.type(Binding.class,
-              CodeGen.typeToString(field.asType()))),
-          JavaWriter.stringLiteral(GeneratorKeys.get((VariableElement) field)),
+              typeToString(field.asType()))),
+          JavaWriter.stringLiteral(key((VariableElement) field)),
           typeName);
     }
     writer.endMethod();

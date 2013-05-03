@@ -36,7 +36,6 @@ import javax.lang.model.type.ArrayType;
 import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.PrimitiveType;
 import javax.lang.model.type.TypeMirror;
-import javax.lang.model.type.TypeVariable;
 import javax.lang.model.util.SimpleAnnotationValueVisitor6;
 import javax.lang.model.util.SimpleTypeVisitor6;
 
@@ -72,7 +71,10 @@ final class CodeGen {
     return builder.toString();
   }
 
-  /** Returns a string for {@code type}. Primitive types are always boxed. */
+  /**
+   * Returns a string for {@code type} for use in emitted code. Primitive types
+   * are always boxed.
+   */
   public static String typeToString(TypeMirror type) {
     StringBuilder result = new StringBuilder();
     typeToString(type, result, '.');
@@ -127,12 +129,8 @@ final class CodeGen {
         result.append("[]");
         return null;
       }
-      @Override public Void visitTypeVariable(TypeVariable typeVariable, Void v) {
-        result.append(typeVariable.asElement().getSimpleName());
-        return null;
-      }
       @Override protected Void defaultAction(TypeMirror typeMirror, Void v) {
-        throw new UnsupportedOperationException(
+        throw new IllegalArgumentException(
             "Unexpected TypeKind " + typeMirror.getKind() + " for "  + typeMirror);
       }
     }, null);
@@ -175,7 +173,7 @@ final class CodeGen {
         Object value = e.getValue().accept(VALUE_EXTRACTOR, null);
         Object defaultValue = result.get(name);
         if (!lenientIsInstance(defaultValue.getClass(), value)) {
-          throw new IllegalStateException(String.format(
+          throw new IllegalArgumentException(String.format(
               "Value of %s.%s is a %s but expected a %s\n    value: %s",
               annotationType, name, value.getClass().getName(), defaultValue.getClass().getName(),
               value instanceof Object[] ? Arrays.toString((Object[]) value) : value));

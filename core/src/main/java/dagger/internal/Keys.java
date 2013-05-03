@@ -56,19 +56,46 @@ public final class Keys {
   Keys() {
   }
 
-  /** Returns a key for {@code type} with no annotation. */
+  /** Returns a key for {@code type} with no annotation and no context. */
   public static String get(Type type) {
-    return get(type, null);
+    return get(type, null, null);
   }
 
 
-  /** Returns a key for the members of {@code type}. */
+  /** Returns a key for the members of {@code type} with no context. */
   public static String getMembersKey(Class<?> key) {
     return "members/" + get(key);
   }
 
-  /** Returns a key for {@code type} annotated by {@code annotation}. */
-  public static String get(Type type, Annotation annotation) {
+  /**
+   * Returns a key for {@code type} annotated with {@code annotations},
+   * wrapped by {@code Set}, reporting failures against {@code context}.
+   *
+   * @param annotations the annotations on a single method, field or parameter.
+   *     This array may contain at most one qualifier annotation.
+   */
+  public static String getSetKey(Type type, Annotation[] annotations, Object context) {
+    Annotation qualifier = extractQualifier(annotations, context);
+    type = boxIfPrimitive(type);
+    StringBuilder result = new StringBuilder();
+    if (qualifier != null) {
+      result.append(qualifier).append("/");
+    }
+    result.append(SET_PREFIX);
+    typeToString(type, result, context, true);
+    result.append(">");
+    return result.toString();
+  }
+
+  /**
+   * Returns a key for {@code type} annotated with {@code annotations},
+   * reporting failures against {@code context}.
+   *
+   * @param annotations the annotations on a single method, field or parameter.
+   *     This array may contain at most one qualifier annotation.
+   */
+  public static String get(Type type, Annotation[] annotations, Object context) {
+    Annotation annotation = annotations != null ? extractQualifier(annotations, context) : null;
     type = boxIfPrimitive(type);
     if (annotation == null && type instanceof Class && !((Class<?>) type).isArray()) {
       return ((Class<?>) type).getName();
@@ -77,54 +104,22 @@ public final class Keys {
     if (annotation != null) {
       result.append(annotation).append("/");
     }
-    typeToString(type, result, true);
+    typeToString(type, result, context, true);
     return result.toString();
-  }
-
-  /**
-   * Returns a key for {@code type} annotated with {@code annotations},
-   * wrapped by {@code Set}, reporting failures against {@code subject}.
-   *
-   * @param annotations the annotations on a single method, field or parameter.
-   *     This array may contain at most one qualifier annotation.
-   */
-  public static String getSetKey(Type type, Annotation[] annotations, Object subject) {
-    Annotation qualifier = extractQualifier(annotations, subject);
-    type = boxIfPrimitive(type);
-    StringBuilder result = new StringBuilder();
-    if (qualifier != null) {
-      result.append(qualifier).append("/");
-    }
-    result.append(SET_PREFIX);
-    typeToString(type, result, true);
-    result.append(">");
-    return result.toString();
-  }
-
-  /**
-   * Returns a key for {@code type} annotated with {@code annotations},
-   * reporting failures against {@code subject}.
-   *
-   * @param annotations the annotations on a single method, field or parameter.
-   *     This array may contain at most one qualifier annotation.
-   */
-  public static String get(Type type, Annotation[] annotations, Object subject) {
-    return get(type, extractQualifier(annotations, subject));
   }
 
   /**
    * Validates that among {@code annotations} there exists only one annotation which is, itself
    * qualified by {@code \@Qualifier}
    */
-  private static Annotation extractQualifier(Annotation[] annotations,
-      Object subject) {
+  private static Annotation extractQualifier(Annotation[] annotations, Object context) {
     Annotation qualifier = null;
     for (Annotation a : annotations) {
       if (!IS_QUALIFIER_ANNOTATION.get(a.annotationType())) {
         continue;
       }
       if (qualifier != null) {
-        throw new IllegalArgumentException("Too many qualifier annotations on " + subject);
+        throw new IllegalArgumentException("Too many qualifier annotations on " + context);
       }
       qualifier = a;
     }
@@ -136,15 +131,17 @@ public final class Keys {
    *     like 'int' are forbidden. Recursive calls pass 'false' to support
    *     arrays like {@code int[]}.
    */
-  private static void typeToString(Type type, StringBuilder result, boolean topLevel) {
+  private static void typeToString(Type type, StringBuilder result, Object context,
+      boolean topLevel) {
     if (type instanceof Class) {
       Class<?> c = (Class<?>) type;
       if (c.isArray()) {
-        typeToString(c.getComponentType(), result, false);
+        typeToString(c.getComponentType(), result, context, false);
         result.append("[]");
       } else if (c.isPrimitive()) {
         if (topLevel) {
-          throw new UnsupportedOperationException("Uninjectable type " + type);
+          throw new IllegalStateException("Uninjectable type " + type
+              + (context != null ?  " in " + context : ""));
         }
         result.append(c.getName());
       } else {
@@ -152,22 +149,23 @@ public final class Keys {
       }
     } else if (type instanceof ParameterizedType) {
       ParameterizedType parameterizedType = (ParameterizedType) type;
-      typeToString(parameterizedType.getRawType(), result, true);
+      typeToString(parameterizedType.getRawType(), result, context, true);
       Type[] arguments = parameterizedType.getActualTypeArguments();
       result.append("<");
       for (int i = 0; i < arguments.length; i++) {
         if (i != 0) {
           result.append(", ");
         }
-        typeToString(arguments[i], result, true);
+        typeToString(arguments[i], result, context, true);
       }
       result.append(">");
     } else if (type instanceof GenericArrayType) {
       GenericArrayType genericArrayType = (GenericArrayType) type;
-      typeToString(genericArrayType.getGenericComponentType(), result, false);
+      typeToString(genericArrayType.getGenericComponentType(), result, context, false);
       result.append("[]");
     } else {
-      throw new UnsupportedOperationException("Uninjectable type " + type);
+      throw new IllegalStateException("Uninjectable type " + type
+          + (context != null ?  " in " + context : ""));
     }
   }
 

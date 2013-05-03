@@ -470,98 +470,6 @@ public final class InjectionTest {
     }
   }
 
-  static class ExtendsParameterizedType extends AbstractList<Integer> {
-    @Inject String string;
-    @Override public Integer get(int i) {
-      throw new AssertionError();
-    }
-    @Override public int size() {
-      throw new AssertionError();
-    }
-  }
-
-  /**
-   * We've had bugs where we look for the wrong keys when a class extends a
-   * parameterized class. Explicitly test that we can inject such classes.
-   */
-  @Test public void extendsParameterizedType() {
-    class TestEntryPoint {
-      @Inject ExtendsParameterizedType extendsParameterizedType;
-    }
-
-    @Module(injects = TestEntryPoint.class)
-    class TestModule {
-      @Provides String provideString() {
-        return "injected";
-      }
-    }
-
-    TestEntryPoint entryPoint = new TestEntryPoint();
-    ObjectGraph.create(new TestModule()).inject(entryPoint);
-    assertThat(entryPoint.extendsParameterizedType.string).isEqualTo("injected");
-  }
-
-  @Test public void injectParameterizedType() {
-    class TestEntryPoint {
-      @Inject List<String> listOfStrings;
-    }
-
-    @Module(injects = TestEntryPoint.class)
-    class TestModule {
-      @Provides List<String> provideList() {
-        return Arrays.asList("a", "b");
-      }
-    }
-
-    TestEntryPoint entryPoint = new TestEntryPoint();
-    ObjectGraph.create(new TestModule()).inject(entryPoint);
-    assertThat(entryPoint.listOfStrings).isEqualTo(Arrays.asList("a", "b"));
-  }
-
-  @Test public void injectWildcardType() {
-    class TestEntryPoint {
-      @Inject List<? extends Number> listOfNumbers;
-    }
-
-    @Module(injects = TestEntryPoint.class)
-    class TestModule {
-      @Provides List<? extends Number> provideList() {
-        return Arrays.asList(1, 2);
-      }
-    }
-
-    try {
-      ObjectGraph.create(new TestModule());
-      fail();
-    } catch (UnsupportedOperationException expected) {
-    }
-  }
-
-  static class Parameterized<T> {
-      @Inject String string;
-    }
-
-  @Test public void noConstructorInjectionsForClassesWithTypeParameters() {
-
-    class TestEntryPoint {
-      @Inject Parameterized<Long> parameterized;
-    }
-
-    @Module(injects = TestEntryPoint.class)
-    class TestModule {
-      @Provides String provideString() {
-        return "injected";
-      }
-    }
-
-    ObjectGraph graph = ObjectGraph.create(new TestModule());
-    try {
-      graph.validate();
-      fail();
-    } catch (IllegalStateException expected) {
-    }
-  }
-
   @Test public void moduleWithNoProvidesMethods() {
     @Module
     class TestModule {
@@ -599,30 +507,6 @@ public final class InjectionTest {
       fail();
     } catch (IllegalArgumentException expected) {
     }
-  }
-
-  @Test public void getInstanceOfPrimitive() {
-    @Module(injects = int.class)
-    class TestModule {
-      @Provides int provideInt() {
-        return 1;
-      }
-    }
-
-    ObjectGraph graph = ObjectGraph.create(new TestModule());
-    assertEquals(1, (int) graph.get(int.class));
-  }
-
-  @Test public void getInstanceOfArray() {
-    @Module(injects = int[].class)
-    class TestModule {
-      @Provides int[] provideIntArray() {
-        return new int[] { 1, 2, 3 };
-      }
-    }
-
-    ObjectGraph graph = ObjectGraph.create(new TestModule());
-    assertEquals("[1, 2, 3]", Arrays.toString(graph.get(int[].class)));
   }
 
   @Test public void getInstanceAndInjectMembersUseDifferentKeys() {

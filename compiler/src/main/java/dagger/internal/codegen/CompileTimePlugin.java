@@ -19,7 +19,6 @@ import dagger.internal.Binding;
 import dagger.internal.ModuleAdapter;
 import dagger.internal.Plugin;
 import dagger.internal.StaticInjection;
-import javax.annotation.processing.ProcessingEnvironment;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.TypeElement;
 
@@ -31,16 +30,16 @@ import javax.lang.model.element.TypeElement;
  */
 public final class CompileTimePlugin implements Plugin {
 
-  private final ProcessingEnvironment processingEnv;
+  private final DaggerProcessor daggerProcessor;
 
-  public CompileTimePlugin(ProcessingEnvironment processingEnv) {
-    this.processingEnv = processingEnv;
+  public CompileTimePlugin(DaggerProcessor daggerProcessor) {
+    this.daggerProcessor = daggerProcessor;
   }
 
   @Override public Binding<?> getAtInjectBinding(
       String key, String className, boolean mustBeInjectable) {
     String sourceClassName = className.replace('$', '.');
-    TypeElement type = processingEnv.getElementUtils().getTypeElement(sourceClassName);
+    TypeElement type = daggerProcessor.getEnv().getElementUtils().getTypeElement(sourceClassName);
     if (type == null) {
       // We've encountered a type that the compiler can't introspect. If this
       // causes problems in practice (due to incremental compiles, etc.) we
@@ -51,7 +50,7 @@ public final class CompileTimePlugin implements Plugin {
     if (type.getKind() == ElementKind.INTERFACE) {
       return null;
     }
-    return AtInjectBinding.create(type, mustBeInjectable);
+    return AtInjectBinding.create(daggerProcessor, type, mustBeInjectable);
   }
 
   @Override public <T> ModuleAdapter<T> getModuleAdapter(Class<? extends T> moduleClass, T module) {

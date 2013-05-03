@@ -16,28 +16,25 @@
 package test;
 
 import dagger.Module;
+
 import dagger.ObjectGraph;
 import dagger.Provides;
+
 import javax.inject.Inject;
+import java.lang.Override;
 
 class TestApp {
-  public static void main(String[] args) {
-    Subtype subtype = ObjectGraph.create(new TestModule()).get(Subtype.class);
-  }
-
   static class Supertype<T> {
-    @Inject String s;
+    @Inject T t;
   }
 
-  static class Subtype extends Supertype<Integer> {
-    @Inject Subtype() {
-    }
+  static class Subtype extends Supertype<String> {
   }
 
   @Module(injects = Subtype.class)
-  static class TestModule {
+  class TestModule {
     @Provides String provideString() {
-      return "a";
+      throw new AssertionError();
     }
   }
 }

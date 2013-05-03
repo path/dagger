@@ -54,7 +54,8 @@ final class AtInjectBinding extends Binding<Object> {
    * @param mustBeInjectable true if the binding must have {@code @Inject}
    *     annotations.
    */
-  static AtInjectBinding create(TypeElement type, boolean mustBeInjectable) {
+  static AtInjectBinding create(DaggerProcessor daggerProcessor, TypeElement type,
+      boolean mustBeInjectable) {
     List<String> requiredKeys = new ArrayList<String>();
     boolean hasInjectAnnotatedConstructor = false;
     boolean isConstructable = false;
@@ -64,7 +65,7 @@ final class AtInjectBinding extends Binding<Object> {
       case FIELD:
         if (hasAtInject(enclosed) && !enclosed.getModifiers().contains(Modifier.STATIC)) {
           // Attach the non-static fields of 'type'.
-          requiredKeys.add(GeneratorKeys.get((VariableElement) enclosed));
+          requiredKeys.add(daggerProcessor.key((VariableElement) enclosed));
         }
         break;
 
@@ -79,7 +80,7 @@ final class AtInjectBinding extends Binding<Object> {
           hasInjectAnnotatedConstructor = true;
           isConstructable = true;
           for (VariableElement parameter : parameters) {
-            requiredKeys.add(GeneratorKeys.get(parameter));
+            requiredKeys.add(daggerProcessor.key(parameter));
           }
         } else if (parameters.isEmpty()) {
           isConstructable = true;
@@ -101,11 +102,11 @@ final class AtInjectBinding extends Binding<Object> {
     // Attach the supertype.
     TypeMirror supertype = CodeGen.getApplicationSupertype(type);
     String supertypeKey = supertype != null
-        ? GeneratorKeys.rawMembersKey(supertype)
+        ? daggerProcessor.rawMembersKey(supertype, type)
         : null;
 
-    String provideKey = isConstructable ? GeneratorKeys.get(type.asType()) : null;
-    String membersKey = GeneratorKeys.rawMembersKey(type.asType());
+    String provideKey = isConstructable ? daggerProcessor.rawKey(type) : null;
+    String membersKey = daggerProcessor.rawMembersKey(type);
     return new AtInjectBinding(provideKey, membersKey, type, requiredKeys, supertypeKey);
   }
 

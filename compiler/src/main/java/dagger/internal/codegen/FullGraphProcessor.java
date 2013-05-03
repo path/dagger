@@ -35,7 +35,6 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import javax.annotation.processing.AbstractProcessor;
 import javax.annotation.processing.RoundEnvironment;
 import javax.annotation.processing.SupportedAnnotationTypes;
 import javax.inject.Singleton;
@@ -55,7 +54,7 @@ import javax.tools.StandardLocation;
  * Performs full graph analysis on a module.
  */
 @SupportedAnnotationTypes("dagger.Module")
-public final class FullGraphProcessor extends AbstractProcessor {
+public final class FullGraphProcessor extends DaggerProcessor {
   private final Set<String> delayedModuleNames = new LinkedHashSet<String>();
 
   @Override public SourceVersion getSupportedSourceVersion() {
@@ -124,10 +123,6 @@ public final class FullGraphProcessor extends AbstractProcessor {
     return true;
   }
 
-  private void error(String message, Element element) {
-    processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, message, element);
-  }
-
   private Map<String, Binding<?>> processCompleteModule(TypeElement rootModule,
       boolean ignoreCompletenessErrors) {
     Map<String, TypeElement> allModules = new LinkedHashMap<String, TypeElement>();
@@ -135,7 +130,7 @@ public final class FullGraphProcessor extends AbstractProcessor {
 
     Linker.ErrorHandler errorHandler = ignoreCompletenessErrors ? Linker.ErrorHandler.NULL
         : new ReportingErrorHandler(processingEnv, rootModule.getQualifiedName().toString());
-    Linker linker = new Linker(null, new CompileTimePlugin(processingEnv), errorHandler);
+    Linker linker = new Linker(null, new CompileTimePlugin(this), errorHandler);
     // Linker requires synchronization for calls to requestBinding and linkAll.
     // We know statically that we're single threaded, but we synchronize anyway
     // to make the linker happy.
@@ -152,8 +147,8 @@ public final class FullGraphProcessor extends AbstractProcessor {
         for (Object injectableTypeObject : (Object[]) annotation.get("injects")) {
           TypeMirror injectableType = (TypeMirror) injectableTypeObject;
           String key = CodeGen.isInterface(injectableType)
-              ? GeneratorKeys.get(injectableType)
-              : GeneratorKeys.rawMembersKey(injectableType);
+              ? key(injectableType, module)
+              : rawMembersKey(injectableType, module);
           linker.requestBinding(key, module.getQualifiedName().toString(), false, true);
         }
 
@@ -167,8 +162,9 @@ public final class FullGraphProcessor extends AbstractProcessor {
             continue;
           }
           ExecutableElement providerMethod = (ExecutableElement) enclosed;
-          String key = GeneratorKeys.get(providerMethod);
-          Binding binding = new ProviderMethodBinding(key, providerMethod, library);
+          String key = key(providerMethod);
+          Binding binding = ProviderMethodBinding.create(this, key, providerMethod,
+              library);
 
           Binding previous = addTo.get(key);
           if (previous != null) {
@@ -190,8 +186,7 @@ public final class FullGraphProcessor extends AbstractProcessor {
               break;
 
             case SET:
-              String setKey = GeneratorKeys.getSetKey(providerMethod);
-              SetBinding.add(addTo, setKey, binding);
+              SetBinding.add(addTo, setKey(providerMethod), binding);
               break;
 
             default:
@@ -264,21 +259,22 @@ public final class FullGraphProcessor extends AbstractProcessor {
 
   static class ProviderMethodBinding extends Binding<Object> {
     private final ExecutableElement method;
+    private final String[] parameterKeys;
     private final Binding<?>[] parameters;
 
-    protected ProviderMethodBinding(String provideKey, ExecutableElement method, boolean library) {
+    private ProviderMethodBinding(String provideKey, ExecutableElement method, boolean library,
+        String[] parameterKeys) {
       super(provideKey, null, method.getAnnotation(Singleton.class) != null,
           CodeGen.methodName(method));
       this.method = method;
+      this.parameterKeys = parameterKeys;
       this.parameters = new Binding[method.getParameters().size()];
       setLibrary(library);
     }
 
     @Override public void attach(Linker linker) {
       for (int i = 0; i < method.getParameters().size(); i++) {
-        VariableElement parameter = method.getParameters().get(i);
-        String parameterKey = GeneratorKeys.get(parameter);
-        parameters[i] = linker.requestBinding(parameterKey, method.toString());
+        parameters[i] = linker.requestBinding(parameterKeys[i], method.toString());
       }
     }
 
@@ -292,6 +288,16 @@ public final class FullGraphProcessor extends AbstractProcessor {
 
     @Override public void getDependencies(Set<Binding<?>> get, Set<Binding<?>> injectMembers) {
       Collections.addAll(get, parameters);
+    }
+
+    public static ProviderMethodBinding create(DaggerProcessor processor, String provideKey,
+        ExecutableElement method, boolean library) {
+      String[] parameterKeys = new String[method.getParameters().size()];
+      for (int i = 0; i < method.getParameters().size(); i++) {
+        VariableElement parameter = method.getParameters().get(i);
+        parameterKeys[i] = processor.key(parameter);
+      }
+      return new ProviderMethodBinding(provideKey, method, library, parameterKeys);
     }
   }
 
